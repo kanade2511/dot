@@ -1,7 +1,10 @@
 mod config;
 
 use clap::Parser;
+use clap::CommandFactory;
+use clap_complete::{Shell, generate};
 use config::Config;
+use std::io;
 use std::process::Command;
 
 #[derive(Parser)]
@@ -10,11 +13,48 @@ struct Cli {
     #[arg(short = 'l', long = "list", help = "List all available commands")]
     list: bool,
 
+    #[command(subcommand)]
+    subcommand: Option<Subcommand>,
+
     #[arg(help = "Config command (e.g., zsh, git, nvim) or 'self' to edit config.toml")]
     command: Option<String>,
 
     #[arg(help = "Module within the command (e.g., aliases, exports)")]
     module: Option<String>,
+}
+
+#[derive(clap::Subcommand)]
+enum Subcommand {
+    /// Generate shell completion script
+    Completions {
+        /// Shell to generate completions for
+        #[arg(value_enum)]
+        shell: Shell,
+    },
+    /// [internal] List command names for shell completion
+    #[command(hide = true)]
+    CompleteCommands,
+    /// [internal] List module names for a command
+    #[command(hide = true)]
+    CompleteModules {
+        command: String,
+    },
+}
+
+fn print_complete_commands(cfg: &Config) {
+    for (name, cmd) in cfg.list_commands() {
+        println!("{}:{}", name, cmd.description.as_deref().unwrap_or(""));
+    }
+}
+
+fn print_complete_modules(cfg: &Config, cmd_name: &str) {
+    if let Some(cmd) = cfg.find_command(cmd_name) {
+        if let Some(modules) = &cmd.modules {
+            for m in modules {
+                println!("{}:{}", m.name, m.desc.as_deref().unwrap_or(""));
+            }
+        }
+    }
 }
 
 fn open_in_editor(editor: &str, path: &std::path::Path) {
@@ -48,6 +88,22 @@ fn main() {
                 }
             }
         }
+        return;
+    }
+
+    if let Some(Subcommand::Completions { shell }) = &cli.subcommand {
+        let mut cmd = Cli::command();
+        generate(*shell, &mut cmd, "dot", &mut io::stdout());
+        return;
+    }
+
+    if let Some(Subcommand::CompleteCommands) = &cli.subcommand {
+        print_complete_commands(&cfg);
+        return;
+    }
+
+    if let Some(Subcommand::CompleteModules { command }) = &cli.subcommand {
+        print_complete_modules(&cfg, command);
         return;
     }
 
